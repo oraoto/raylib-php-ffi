@@ -1,0 +1,10 @@
+* [[https://github.com/raysan5/raylib/][raylib]] binding for PHP
+** Requirement
+- PHP 7.4
+- FFI extension
+- libraylib.so
+** FFI limitations
+   Only some basic examples works due to current FFI limitations:
+   - FFI return struct/union is not implemented
+   - FFI return array is not implemented
+   - Nested struct is not supported ([[./ffi-patches/0001-FFI-add-nested-struct-support.patch][patch]])

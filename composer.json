@@ -1,0 +1,19 @@
+{
+    "name": "oraoto/raylib-php-ffi",
+    "description": "raylib binding for php using ffi",
+    "type": "library",
+    "license": "zlib/libpng",
+    "authors": [
+        {
+            "name": "Oraoto",
+            "email": "oraoto@outlook.com"
+        }
+    ],
+    "require": {
+	"php": ">=7.4",
+	"ext-ffi": "*"
+    },
+    "autoload": {
+	"classmap": ["RayLib.php"]
+    }
+}
