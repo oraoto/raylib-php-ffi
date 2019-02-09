@@ -2,7 +2,7 @@
 ** Requirement
 - PHP 7.4
 - FFI extension
-- libraylib.so
+- libraylib.so 2.4-dev
 ** FFI limitations
    Only some basic examples works due to current FFI limitations:
    - FFI return struct/union is not implemented

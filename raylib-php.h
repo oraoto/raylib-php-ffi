@@ -29,6 +29,7 @@
 // 1. All constants are moved to Raylib.php
 // 2. All reference to Camera are replaced with Camera3D
 // 3. MAX_SHADER_LOCATIONS and MAX_MATERIAL_MAPS are replaced with coresponding constants
+// 4. RLAPI is removed
 
 //----------------------------------------------------------------------------------
 // Structures Definition
@@ -104,15 +105,29 @@ typedef struct Texture2D {
 // Texture type, same as Texture2D
 typedef Texture2D Texture;
 
+// TextureCubemap type, actually, same as Texture2D
+typedef Texture2D TextureCubemap;
+
 // RenderTexture2D type, for texture rendering
 typedef struct RenderTexture2D {
     unsigned int id;        // OpenGL Framebuffer Object (FBO) id
     Texture2D texture;      // Color buffer attachment texture
     Texture2D depth;        // Depth buffer attachment texture
+    bool depthTexture;      // Track if depth attachment is a texture or renderbuffer
 } RenderTexture2D;
 
 // RenderTexture type, same as RenderTexture2D
 typedef RenderTexture2D RenderTexture;
+
+// N-Patch layout info
+typedef struct NPatchInfo {
+    Rectangle sourceRec;   // Region in the texture
+    int left;              // left border offset
+    int top;               // top border offset
+    int right;             // right border offset
+    int bottom;            // bottom border offset
+    int type;              // layout of the n-patch: 3x3, 1x3 or 3x1
+} NPatchInfo;
 
 // Font character info
 typedef struct CharInfo {
@@ -165,6 +180,7 @@ typedef struct Mesh {
     int vertexCount;        // Number of vertices stored in arrays
     int triangleCount;      // Number of triangles stored (indexed or not)
 
+    // Default vertex data
     float *vertices;        // Vertex position (XYZ - 3 components per vertex) (shader-location = 0)
     float *texcoords;       // Vertex texture coordinates (UV - 2 components per vertex) (shader-location = 1)
     float *texcoords2;      // Vertex second texture coordinates (useful for lightmaps) (shader-location = 5)
@@ -173,8 +189,15 @@ typedef struct Mesh {
     unsigned char *colors;  // Vertex colors (RGBA - 4 components per vertex) (shader-location = 3)
     unsigned short *indices;// Vertex indices (in case vertex data comes indexed)
 
+    // Animation vertex data
+    float *baseVertices;    // Vertex base position (required to apply bones transformations)
+    float *baseNormals;     // Vertex base normals (required to apply bones transformations)
+    float *weightBias;      // Vertex weight bias
+    int *weightId;          // Vertex weight id
+
+    // OpenGL identifiers
     unsigned int vaoId;     // OpenGL Vertex Array Object id
-    unsigned int vboId[7];  // OpenGL Vertex Buffer Objects id (7 types of vertex data)
+    unsigned int vboId[7];  // OpenGL Vertex Buffer Objects id (default vertex data)
 } Mesh;
 
 // Shader type (generic)
@@ -268,17 +291,259 @@ typedef struct VrDeviceInfo {
     float chromaAbCorrection[4];    // HMD chromatic aberration correction parameters
 } VrDeviceInfo;
 
+// VR Stereo rendering configuration for simulator
+typedef struct VrStereoConfig {
+    RenderTexture2D stereoFbo;      // VR stereo rendering framebuffer
+    Shader distortionShader;        // VR stereo rendering distortion shader
+    Matrix eyesProjection[2];       // VR stereo rendering eyes projection matrices
+    Matrix eyesViewOffset[2];       // VR stereo rendering eyes view offset matrices
+    int eyeViewportRight[4];        // VR stereo rendering right eye viewport [x, y, w, h]
+    int eyeViewportLeft[4];         // VR stereo rendering left eye viewport [x, y, w, h]
+} VrStereoConfig;
+
 //----------------------------------------------------------------------------------
 // Enumerators Definition
 //----------------------------------------------------------------------------------
+
+// System config flags
+// NOTE: Used for bit masks
+typedef enum {
+    FLAG_SHOW_LOGO          = 1,    // Set to show raylib logo at startup
+    FLAG_FULLSCREEN_MODE    = 2,    // Set to run program in fullscreen
+    FLAG_WINDOW_RESIZABLE   = 4,    // Set to allow resizable window
+    FLAG_WINDOW_UNDECORATED = 8,    // Set to disable window decoration (frame and buttons)
+    FLAG_WINDOW_TRANSPARENT = 16,   // Set to allow transparent window
+    FLAG_WINDOW_HIDDEN      = 128,  // Set to create the window initially hidden
+    FLAG_MSAA_4X_HINT       = 32,   // Set to try enabling MSAA 4X
+    FLAG_VSYNC_HINT         = 64    // Set to try enabling V-Sync on GPU
+} ConfigFlag;
+
 // Trace log type
 typedef enum {
-    LOG_INFO    = 1,
-    LOG_WARNING = 2,
-    LOG_ERROR   = 4,
-    LOG_DEBUG   = 8,
-    LOG_OTHER   = 16
-} LogType;
+    LOG_ALL,        // Display all logs
+    LOG_TRACE,
+    LOG_DEBUG,
+    LOG_INFO,
+    LOG_WARNING,
+    LOG_ERROR,
+    LOG_FATAL,
+    LOG_NONE        // Disable logging
+} TraceLogType;
+
+// Keyboard keys
+typedef enum {
+    // Alphanumeric keys
+    KEY_APOSTROPHE      = 39,
+    KEY_COMMA           = 44,
+    KEY_MINUS           = 45,
+    KEY_PERIOD          = 46,
+    KEY_SLASH           = 47,
+    KEY_ZERO            = 48,
+    KEY_ONE             = 49,
+    KEY_TWO             = 50,
+    KEY_THREE           = 51,
+    KEY_FOUR            = 52,
+    KEY_FIVE            = 53,
+    KEY_SIX             = 54,
+    KEY_SEVEN           = 55,
+    KEY_EIGHT           = 56,
+    KEY_NINE            = 57,
+    KEY_SEMICOLON       = 59,
+    KEY_EQUAL           = 61,
+    KEY_A               = 65,
+    KEY_B               = 66,
+    KEY_C               = 67,
+    KEY_D               = 68,
+    KEY_E               = 69,
+    KEY_F               = 70,
+    KEY_G               = 71,
+    KEY_H               = 72,
+    KEY_I               = 73,
+    KEY_J               = 74,
+    KEY_K               = 75,
+    KEY_L               = 76,
+    KEY_M               = 77,
+    KEY_N               = 78,
+    KEY_O               = 79,
+    KEY_P               = 80,
+    KEY_Q               = 81,
+    KEY_R               = 82,
+    KEY_S               = 83,
+    KEY_T               = 84,
+    KEY_U               = 85,
+    KEY_V               = 86,
+    KEY_W               = 87,
+    KEY_X               = 88,
+    KEY_Y               = 89,
+    KEY_Z               = 90,
+
+    // Function keys
+    KEY_SPACE           = 32,
+    KEY_ESCAPE          = 256,
+    KEY_ENTER           = 257,
+    KEY_TAB             = 258,
+    KEY_BACKSPACE       = 259,
+    KEY_INSERT          = 260,
+    KEY_DELETE          = 261,
+    KEY_RIGHT           = 262,
+    KEY_LEFT            = 263,
+    KEY_DOWN            = 264,
+    KEY_UP              = 265,
+    KEY_PAGE_UP         = 266,
+    KEY_PAGE_DOWN       = 267,
+    KEY_HOME            = 268,
+    KEY_END             = 269,
+    KEY_CAPS_LOCK       = 280,
+    KEY_SCROLL_LOCK     = 281,
+    KEY_NUM_LOCK        = 282,
+    KEY_PRINT_SCREEN    = 283,
+    KEY_PAUSE           = 284,
+    KEY_F1              = 290,
+    KEY_F2              = 291,
+    KEY_F3              = 292,
+    KEY_F4              = 293,
+    KEY_F5              = 294,
+    KEY_F6              = 295,
+    KEY_F7              = 296,
+    KEY_F8              = 297,
+    KEY_F9              = 298,
+    KEY_F10             = 299,
+    KEY_F11             = 300,
+    KEY_F12             = 301,
+    KEY_LEFT_SHIFT      = 340,
+    KEY_LEFT_CONTROL    = 341,
+    KEY_LEFT_ALT        = 342,
+    KEY_LEFT_SUPER      = 343,
+    KEY_RIGHT_SHIFT     = 344,
+    KEY_RIGHT_CONTROL   = 345,
+    KEY_RIGHT_ALT       = 346,
+    KEY_RIGHT_SUPER     = 347,
+    KEY_KB_MENU         = 348,
+    KEY_LEFT_BRACKET    = 91,
+    KEY_BACKSLASH       = 92,
+    KEY_RIGHT_BRACKET   = 93,
+    KEY_GRAVE           = 96,
+
+    // Keypad keys
+    KEY_KP_0            = 320,
+    KEY_KP_1            = 321,
+    KEY_KP_2            = 322,
+    KEY_KP_3            = 323,
+    KEY_KP_4            = 324,
+    KEY_KP_5            = 325,
+    KEY_KP_6            = 326,
+    KEY_KP_7            = 327,
+    KEY_KP_8            = 328,
+    KEY_KP_9            = 329,
+    KEY_KP_DECIMAL      = 330,
+    KEY_KP_DIVIDE       = 331,
+    KEY_KP_MULTIPLY     = 332,
+    KEY_KP_SUBTRACT     = 333,
+    KEY_KP_ADD          = 334,
+    KEY_KP_ENTER        = 335,
+    KEY_KP_EQUAL        = 336
+} KeyboardKey;
+
+// Android buttons
+typedef enum {
+    KEY_BACK            = 4,
+    KEY_MENU            = 82,
+    KEY_VOLUME_UP       = 24,
+    KEY_VOLUME_DOWN     = 25
+} AndroidButton;
+
+// Mouse buttons
+typedef enum {
+    MOUSE_LEFT_BUTTON   = 0,
+    MOUSE_RIGHT_BUTTON  = 1,
+    MOUSE_MIDDLE_BUTTON = 2
+} MouseButton;
+
+// Gamepad number
+typedef enum {
+    GAMEPAD_PLAYER1     = 0,
+    GAMEPAD_PLAYER2     = 1,
+    GAMEPAD_PLAYER3     = 2,
+    GAMEPAD_PLAYER4     = 3
+} GamepadNumber;
+
+// PS3 USB Controller Buttons
+// TODO: Provide a generic way to list gamepad controls schemes,
+// defining specific controls schemes is not a good option
+typedef enum {
+    GAMEPAD_PS3_BUTTON_TRIANGLE = 0,
+    GAMEPAD_PS3_BUTTON_CIRCLE   = 1,
+    GAMEPAD_PS3_BUTTON_CROSS    = 2,
+    GAMEPAD_PS3_BUTTON_SQUARE   = 3,
+    GAMEPAD_PS3_BUTTON_L1       = 6,
+    GAMEPAD_PS3_BUTTON_R1       = 7,
+    GAMEPAD_PS3_BUTTON_L2       = 4,
+    GAMEPAD_PS3_BUTTON_R2       = 5,
+    GAMEPAD_PS3_BUTTON_START    = 8,
+    GAMEPAD_PS3_BUTTON_SELECT   = 9,
+    GAMEPAD_PS3_BUTTON_PS       = 12,
+    GAMEPAD_PS3_BUTTON_UP       = 24,
+    GAMEPAD_PS3_BUTTON_RIGHT    = 25,
+    GAMEPAD_PS3_BUTTON_DOWN     = 26,
+    GAMEPAD_PS3_BUTTON_LEFT     = 27
+} GamepadPS3Button;
+
+// PS3 USB Controller Axis
+typedef enum {
+    GAMEPAD_PS3_AXIS_LEFT_X     = 0,
+    GAMEPAD_PS3_AXIS_LEFT_Y     = 1,
+    GAMEPAD_PS3_AXIS_RIGHT_X    = 2,
+    GAMEPAD_PS3_AXIS_RIGHT_Y    = 5,
+    GAMEPAD_PS3_AXIS_L2         = 3,    // [1..-1] (pressure-level)
+    GAMEPAD_PS3_AXIS_R2         = 4     // [1..-1] (pressure-level)
+} GamepadPS3Axis;
+
+// Xbox360 USB Controller Buttons
+typedef enum {
+    GAMEPAD_XBOX_BUTTON_A       = 0,
+    GAMEPAD_XBOX_BUTTON_B       = 1,
+    GAMEPAD_XBOX_BUTTON_X       = 2,
+    GAMEPAD_XBOX_BUTTON_Y       = 3,
+    GAMEPAD_XBOX_BUTTON_LB      = 4,
+    GAMEPAD_XBOX_BUTTON_RB      = 5,
+    GAMEPAD_XBOX_BUTTON_SELECT  = 6,
+    GAMEPAD_XBOX_BUTTON_START   = 7,
+    GAMEPAD_XBOX_BUTTON_HOME    = 8,
+    GAMEPAD_XBOX_BUTTON_UP      = 10,
+    GAMEPAD_XBOX_BUTTON_RIGHT   = 11,
+    GAMEPAD_XBOX_BUTTON_DOWN    = 12,
+    GAMEPAD_XBOX_BUTTON_LEFT    = 13
+} GamepadXbox360Button;
+
+// Xbox360 USB Controller Axis,
+// NOTE: For Raspberry Pi, axis must be reconfigured
+typedef enum {
+    GAMEPAD_XBOX_AXIS_LEFT_X    = 0,    // [-1..1] (left->right)
+    GAMEPAD_XBOX_AXIS_LEFT_Y    = 1,    // [1..-1] (up->down)
+    GAMEPAD_XBOX_AXIS_RIGHT_X   = 2,    // [-1..1] (left->right)
+    GAMEPAD_XBOX_AXIS_RIGHT_Y   = 3,    // [1..-1] (up->down)
+    GAMEPAD_XBOX_AXIS_LT        = 4,    // [-1..1] (pressure-level)
+    GAMEPAD_XBOX_AXIS_RT        = 5     // [-1..1] (pressure-level)
+} GamepadXbox360Axis;
+
+// Android Gamepad Controller (SNES CLASSIC)
+typedef enum {
+    GAMEPAD_ANDROID_DPAD_UP     = 19,
+    GAMEPAD_ANDROID_DPAD_DOWN   = 20,
+    GAMEPAD_ANDROID_DPAD_LEFT   = 21,
+    GAMEPAD_ANDROID_DPAD_RIGHT  = 22,
+    GAMEPAD_ANDROID_DPAD_CENTER = 23,
+    GAMEPAD_ANDROID_BUTTON_A    = 96,
+    GAMEPAD_ANDROID_BUTTON_B    = 97,
+    GAMEPAD_ANDROID_BUTTON_C    = 98,
+    GAMEPAD_ANDROID_BUTTON_X    = 99,
+    GAMEPAD_ANDROID_BUTTON_Y    = 100,
+    GAMEPAD_ANDROID_BUTTON_Z    = 101,
+    GAMEPAD_ANDROID_BUTTON_L1   = 102,
+    GAMEPAD_ANDROID_BUTTON_R1   = 103,
+    GAMEPAD_ANDROID_BUTTON_L2   = 104,
+    GAMEPAD_ANDROID_BUTTON_R2   = 105
+} GamepadAndroid;
 
 // Shader location point type
 typedef enum {
@@ -309,6 +574,21 @@ typedef enum {
     LOC_MAP_BRDF
 } ShaderLocationIndex;
 
+#define LOC_MAP_DIFFUSE      LOC_MAP_ALBEDO
+#define LOC_MAP_SPECULAR     LOC_MAP_METALNESS
+
+// Shader uniform data types
+typedef enum {
+    UNIFORM_FLOAT = 0,
+    UNIFORM_VEC2,
+    UNIFORM_VEC3,
+    UNIFORM_VEC4,
+    UNIFORM_INT,
+    UNIFORM_IVEC2,
+    UNIFORM_IVEC3,
+    UNIFORM_IVEC4,
+    UNIFORM_SAMPLER2D
+} ShaderUniformDataType;
 
 // Material map type
 typedef enum {
@@ -324,6 +604,9 @@ typedef enum {
     MAP_PREFILTER,           // NOTE: Uses GL_TEXTURE_CUBE_MAP
     MAP_BRDF
 } TexmapIndex;
+
+#define MAP_DIFFUSE      MAP_ALBEDO
+#define MAP_SPECULAR     MAP_METALNESS
 
 // Pixel formats
 // NOTE: Support depends on OpenGL version and platform
@@ -363,18 +646,36 @@ typedef enum {
     FILTER_ANISOTROPIC_16X,         // Anisotropic filtering 16x
 } TextureFilterMode;
 
+// Cubemap layout type
+typedef enum {
+    CUBEMAP_AUTO_DETECT = 0,        // Automatically detect layout type
+    CUBEMAP_LINE_VERTICAL,          // Layout is defined by a vertical line with faces
+    CUBEMAP_LINE_HORIZONTAL,        // Layout is defined by an horizontal line with faces
+    CUBEMAP_CROSS_THREE_BY_FOUR,    // Layout is defined by a 3x4 cross with cubemap faces
+    CUBEMAP_CROSS_FOUR_BY_THREE,    // Layout is defined by a 4x3 cross with cubemap faces
+    CUBEMAP_PANORAMA                // Layout is defined by a panorama image (equirectangular map)
+} CubemapLayoutType;
+
 // Texture parameters: wrap mode
 typedef enum {
-    WRAP_REPEAT = 0,
-    WRAP_CLAMP,
-    WRAP_MIRROR
+    WRAP_REPEAT = 0,        // Repeats texture in tiled mode
+    WRAP_CLAMP,             // Clamps texture to edge pixel in tiled mode
+    WRAP_MIRROR_REPEAT,     // Mirrors and repeats the texture in tiled mode
+    WRAP_MIRROR_CLAMP       // Mirrors and clamps to border the texture in tiled mode
 } TextureWrapMode;
+
+// Font type, defines generation method
+typedef enum {
+    FONT_DEFAULT = 0,       // Default font generation, anti-aliased
+    FONT_BITMAP,            // Bitmap font generation, no anti-aliasing
+    FONT_SDF                // SDF font generation, requires external shader
+} FontType;
 
 // Color blending modes (pre-defined)
 typedef enum {
-    BLEND_ALPHA = 0,
-    BLEND_ADDITIVE,
-    BLEND_MULTIPLIED
+    BLEND_ALPHA = 0,        // Blend textures considering alpha (default)
+    BLEND_ADDITIVE,         // Blend textures adding colors
+    BLEND_MULTIPLIED        // Blend textures multiplying colors
 } BlendMode;
 
 // Gestures type
@@ -391,7 +692,7 @@ typedef enum {
     GESTURE_SWIPE_DOWN  = 128,
     GESTURE_PINCH_IN    = 256,
     GESTURE_PINCH_OUT   = 512
-} Gestures;
+} GestureType;
 
 // Camera system modes
 typedef enum {
@@ -418,10 +719,15 @@ typedef enum {
     HMD_SONY_PSVR
 } VrDeviceType;
 
-//------------------------------------------------------------------------------------
-// Global Variables Definition
-//------------------------------------------------------------------------------------
-// It's lonely here...
+// Type of n-patch
+typedef enum {
+    NPT_9PATCH = 0,         // Npatch defined by 3x3 tiles
+    NPT_3PATCH_VERTICAL,    // Npatch defined by 1x3 tiles
+    NPT_3PATCH_HORIZONTAL   // Npatch defined by 3x1 tiles
+} NPatchType;
+
+// Callbacks to be implemented by users
+typedef void (*TraceLogCallback)(int logType, const char *text, va_list args);
 
 //------------------------------------------------------------------------------------
 // Window and Graphics Device Functions (Module: core)
@@ -429,19 +735,29 @@ typedef enum {
 
 // Window-related functions
 void InitWindow(int width, int height, const char *title);  // Initialize window and OpenGL context
+bool WindowShouldClose(void);                               // Check if KEY_ESCAPE pressed or Close icon pressed
 void CloseWindow(void);                                     // Close window and unload OpenGL context
 bool IsWindowReady(void);                                   // Check if window has been initialized successfully
-bool WindowShouldClose(void);                               // Check if KEY_ESCAPE pressed or Close icon pressed
 bool IsWindowMinimized(void);                               // Check if window has been minimized (or lost focus)
+bool IsWindowHidden(void);                                  // Check if window is currently hidden
 void ToggleFullscreen(void);                                // Toggle fullscreen mode (only PLATFORM_DESKTOP)
+void UnhideWindow(void);                                    // Show the window
+void HideWindow(void);                                      // Hide the window
 void SetWindowIcon(Image image);                            // Set icon for window (only PLATFORM_DESKTOP)
 void SetWindowTitle(const char *title);                     // Set title for window (only PLATFORM_DESKTOP)
 void SetWindowPosition(int x, int y);                       // Set window position on screen (only PLATFORM_DESKTOP)
 void SetWindowMonitor(int monitor);                         // Set monitor for the current window (fullscreen mode)
 void SetWindowMinSize(int width, int height);               // Set window minimum dimensions (for FLAG_WINDOW_RESIZABLE)
 void SetWindowSize(int width, int height);                  // Set window dimensions
+void *GetWindowHandle(void);                                // Get native window handle
 int GetScreenWidth(void);                                   // Get current screen width
 int GetScreenHeight(void);                                  // Get current screen height
+int GetMonitorCount(void);                                  // Get number of connected monitors
+int GetMonitorWidth(int monitor);                           // Get primary monitor width
+int GetMonitorHeight(int monitor);                          // Get primary monitor height
+int GetMonitorPhysicalWidth(int monitor);                   // Get primary monitor physical width in millimetres
+int GetMonitorPhysicalHeight(int monitor);                  // Get primary monitor physical height in millimetres
+const char *GetMonitorName(int monitor);                    // Get the human-readable, UTF-8 encoded name of the primary monitor
 
 // Cursor-related functions
 void ShowCursor(void);                                      // Shows cursor
@@ -466,7 +782,7 @@ Ray GetMouseRay(Vector2 mousePosition, Camera3D camera);      // Returns a ray t
 Vector2 GetWorldToScreen(Vector3 position, Camera3D camera);  // Returns the screen space position for a 3d world space position
 Matrix GetCameraMatrix(Camera3D camera);                      // Returns camera transform matrix (view matrix)
 
-// Timming-related functions
+// timing-related functions
 void SetTargetFPS(int fps);                                 // Set target FPS (maximum)
 int GetFPS(void);                                           // Returns current FPS
 float GetFrameTime(void);                                   // Returns time in seconds for last frame drawn
@@ -476,31 +792,40 @@ double GetTime(void);                                       // Returns elapsed t
 int ColorToInt(Color color);                                // Returns hexadecimal value for a Color
 Vector4 ColorNormalize(Color color);                        // Returns color normalized as float [0..1]
 Vector3 ColorToHSV(Color color);                            // Returns HSV values for a Color
+Color ColorFromHSV(Vector3 hsv);                            // Returns a Color from HSV values
 Color GetColor(int hexValue);                               // Returns a Color struct from hexadecimal value
 Color Fade(Color color, float alpha);                       // Color fade-in or fade-out, alpha goes from 0.0f to 1.0f
 
 // Misc. functions
-void ShowLogo(void);                                        // Activate raylib logo at startup (can be done with flags)
 void SetConfigFlags(unsigned char flags);                   // Setup window configuration flags (view FLAGS)
-void SetTraceLog(unsigned char types);                      // Enable trace log message types (bit flags based)
-void TraceLog(int logType, const char *text, ...);          // Show trace log messages (LOG_INFO, LOG_WARNING, LOG_ERROR, LOG_DEBUG)
+void SetTraceLogLevel(int logType);                         // Set the current threshold (minimum) log level
+void SetTraceLogExit(int logType);                          // Set the exit threshold (minimum) log level
+void SetTraceLogCallback(TraceLogCallback callback);        // Set a trace log callback to enable custom logging
+void TraceLog(int logType, const char *text, ...);          // Show trace log messages (LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERROR)
 void TakeScreenshot(const char *fileName);                  // Takes a screenshot of current screen (saved a .png)
 int GetRandomValue(int min, int max);                       // Returns a random value between min and max (both included)
 
 // Files management functions
+bool FileExists(const char *fileName);                      // Check if file exists
 bool IsFileExtension(const char *fileName, const char *ext);// Check file extension
 const char *GetExtension(const char *fileName);             // Get pointer to extension for a filename string
 const char *GetFileName(const char *filePath);              // Get pointer to filename for a path string
+const char *GetFileNameWithoutExt(const char *filePath);    // Get filename string without extension (memory should be freed)
 const char *GetDirectoryPath(const char *fileName);         // Get full path for a given fileName (uses static string)
 const char *GetWorkingDirectory(void);                      // Get current working directory (uses static string)
+char **GetDirectoryFiles(const char *dirPath, int *count);  // Get filenames in a directory path (memory should be freed)
+void ClearDirectoryFiles(void);                             // Clear directory files paths buffers (free memory)
 bool ChangeDirectory(const char *dir);                      // Change working directory, returns true if success
 bool IsFileDropped(void);                                   // Check if a file has been dropped into window
-char **GetDroppedFiles(int *count);                         // Get dropped files names
-void ClearDroppedFiles(void);                               // Clear dropped files paths buffer
+char **GetDroppedFiles(int *count);                         // Get dropped files names (memory should be freed)
+void ClearDroppedFiles(void);                               // Clear dropped files paths buffer (free memory)
+long GetFileModTime(const char *fileName);                  // Get file modification time (last write time)
 
 // Persistent storage management
 void StorageSaveValue(int position, int value);             // Save integer value to storage file (to defined position)
 int StorageLoadValue(int position);                         // Load integer value from storage file (from defined position)
+
+void OpenURL(const char *url);                              // Open URL with default system browser (if available)
 
 //------------------------------------------------------------------------------------
 // Input Handling Functions (Module: core)
@@ -534,8 +859,9 @@ bool IsMouseButtonUp(int button);                       // Detect if a mouse but
 int GetMouseX(void);                                    // Returns mouse position X
 int GetMouseY(void);                                    // Returns mouse position Y
 Vector2 GetMousePosition(void);                         // Returns mouse position XY
-void SetMousePosition(Vector2 position);                // Set mouse position XY
-void SetMouseScale(float scale);                        // Set mouse scaling
+void SetMousePosition(int x, int y);                    // Set mouse position XY
+void SetMouseOffset(int offsetX, int offsetY);          // Set mouse offset
+void SetMouseScale(float scaleX, float scaleY);         // Set mouse scaling
 int GetMouseWheelMove(void);                            // Returns mouse wheel movement Y
 
 // Input-related functions: touch
@@ -597,6 +923,8 @@ void DrawPoly(Vector2 center, int sides, float radius, float rotation, Color col
 void DrawPolyEx(Vector2 *points, int numPoints, Color color);                                      // Draw a closed polygon defined by points
 void DrawPolyExLines(Vector2 *points, int numPoints, Color color);                                 // Draw polygon lines
 
+void SetShapesTexture(Texture2D texture, Rectangle source);                                        // Define default texture used to draw shapes
+
 // Basic shapes collision detection functions
 bool CheckCollisionRecs(Rectangle rec1, Rectangle rec2);                                           // Check collision between two rectangles
 bool CheckCollisionCircles(Vector2 center1, float radius1, Vector2 center2, float radius2);        // Check collision between two circles
@@ -615,9 +943,11 @@ Image LoadImage(const char *fileName);                                          
 Image LoadImageEx(Color *pixels, int width, int height);                                           // Load image from Color array data (RGBA - 32bit)
 Image LoadImagePro(void *data, int width, int height, int format);                                 // Load image from raw data with parameters
 Image LoadImageRaw(const char *fileName, int width, int height, int format, int headerSize);       // Load image from RAW file data
-void ExportImage(const char *fileName, Image image);                                               // Export image as a PNG file
+void ExportImage(Image image, const char *fileName);                                               // Export image data to file
+void ExportImageAsCode(Image image, const char *fileName);                                         // Export image as code file defining an array of bytes
 Texture2D LoadTexture(const char *fileName);                                                       // Load texture from file into GPU memory (VRAM)
 Texture2D LoadTextureFromImage(Image image);                                                       // Load texture from image data
+TextureCubemap LoadTextureCubemap(Image image, int layoutType);                                    // Load cubemap from image, multiple image cubemap layouts supported
 RenderTexture2D LoadRenderTexture(int width, int height);                                          // Load texture for rendering (framebuffer)
 void UnloadImage(Image image);                                                                     // Unload image from CPU memory (RAM)
 void UnloadTexture(Texture2D texture);                                                             // Unload texture from GPU memory (VRAM)
@@ -637,15 +967,17 @@ void ImageAlphaClear(Image *image, Color color, float threshold);               
 void ImageAlphaCrop(Image *image, float threshold);                                                // Crop image depending on alpha value
 void ImageAlphaPremultiply(Image *image);                                                          // Premultiply alpha channel
 void ImageCrop(Image *image, Rectangle crop);                                                      // Crop an image to a defined rectangle
-void ImageResize(Image *image, int newWidth, int newHeight);                                       // Resize image (bilinear filtering)
+void ImageResize(Image *image, int newWidth, int newHeight);                                       // Resize image (Bicubic scaling algorithm)
 void ImageResizeNN(Image *image, int newWidth,int newHeight);                                      // Resize image (Nearest-Neighbor scaling algorithm)
 void ImageResizeCanvas(Image *image, int newWidth, int newHeight, int offsetX, int offsetY, Color color);  // Resize canvas and fill with color
 void ImageMipmaps(Image *image);                                                                   // Generate all mipmap levels for a provided image
 void ImageDither(Image *image, int rBpp, int gBpp, int bBpp, int aBpp);                            // Dither image data to 16bpp or lower (Floyd-Steinberg dithering)
+Color *ImageExtractPalette(Image image, int maxPaletteSize, int *extractCount);                    // Extract color palette from image to maximum size (memory should be freed)
 Image ImageText(const char *text, int fontSize, Color color);                                      // Create an image from text (default font)
 Image ImageTextEx(Font font, const char *text, float fontSize, float spacing, Color tint);         // Create an image from text (custom sprite font)
 void ImageDraw(Image *dst, Image src, Rectangle srcRec, Rectangle dstRec);                         // Draw a source image within a destination image
-void ImageDrawRectangle(Image *dst, Vector2 position, Rectangle rec, Color color);                 // Draw rectangle within an image
+void ImageDrawRectangle(Image *dst, Rectangle rec, Color color);                                   // Draw rectangle within an image
+void ImageDrawRectangleLines(Image *dst, Rectangle rec, int thick, Color color);                   // Draw rectangle lines within an image
 void ImageDrawText(Image *dst, Vector2 position, const char *text, int fontSize, Color color);     // Draw text (default font) within an image (destination)
 void ImageDrawTextEx(Image *dst, Vector2 position, Font font, const char *text, float fontSize, float spacing, Color color); // Draw text (custom sprite font) within an image (destination)
 void ImageFlipVertical(Image *image);                                                              // Flip image vertically
@@ -679,7 +1011,9 @@ void DrawTexture(Texture2D texture, int posX, int posY, Color tint);            
 void DrawTextureV(Texture2D texture, Vector2 position, Color tint);                                // Draw a Texture2D with position defined as Vector2
 void DrawTextureEx(Texture2D texture, Vector2 position, float rotation, float scale, Color tint);  // Draw a Texture2D with extended parameters
 void DrawTextureRec(Texture2D texture, Rectangle sourceRec, Vector2 position, Color tint);         // Draw a part of a texture defined by a rectangle
-void DrawTexturePro(Texture2D texture, Rectangle sourceRec, Rectangle destRec, Vector2 origin, float rotation, Color tint); // Draw a part of a texture defined by a rectangle with 'pro' parameters
+void DrawTextureQuad(Texture2D texture, Vector2 tiling, Vector2 offset, Rectangle quad, Color tint);  // Draw texture quad with tiling and offset parameters
+void DrawTexturePro(Texture2D texture, Rectangle sourceRec, Rectangle destRec, Vector2 origin, float rotation, Color tint);       // Draw a part of a texture defined by a rectangle with 'pro' parameters
+void DrawTextureNPatch(Texture2D texture, NPatchInfo nPatchInfo, Rectangle destRec, Vector2 origin, float rotation, Color tint);  // Draws a texture (or part of it) that stretches or shrinks nicely
 
 //------------------------------------------------------------------------------------
 // Font Loading and Text Drawing Functions (Module: text)
@@ -688,22 +1022,42 @@ void DrawTexturePro(Texture2D texture, Rectangle sourceRec, Rectangle destRec, V
 // Font loading/unloading functions
 Font GetFontDefault(void);                                                            // Get the default Font
 Font LoadFont(const char *fileName);                                                  // Load font from file into GPU memory (VRAM)
-Font LoadFontEx(const char *fileName, int fontSize, int charsCount, int *fontChars);  // Load font from file with extended parameters
-CharInfo *LoadFontData(const char *fileName, int fontSize, int *fontChars, int charsCount, bool sdf); // Load font data for further use
-Image GenImageFontAtlas(CharInfo *chars, int fontSize, int charsCount, int padding, int packMethod);  // Generate image font atlas using chars info
+Font LoadFontEx(const char *fileName, int fontSize, int *fontChars, int charsCount);  // Load font from file with extended parameters
+Font LoadFontFromImage(Image image, Color key, int firstChar);                        // Load font from Image (XNA style)
+CharInfo *LoadFontData(const char *fileName, int fontSize, int *fontChars, int charsCount, int type); // Load font data for further use
+Image GenImageFontAtlas(CharInfo *chars, int charsCount, int fontSize, int padding, int packMethod);  // Generate image font atlas using chars info
 void UnloadFont(Font font);                                                           // Unload Font from GPU memory (VRAM)
 
 // Text drawing functions
 void DrawFPS(int posX, int posY);                                                     // Shows current FPS
 void DrawText(const char *text, int posX, int posY, int fontSize, Color color);       // Draw text (using default font)
-void DrawTextEx(Font font, const char* text, Vector2 position, float fontSize, float spacing, Color tint); // Draw text using font and additional parameters
+void DrawTextEx(Font font, const char *text, Vector2 position, float fontSize, float spacing, Color tint);                // Draw text using font and additional parameters
+void DrawTextRec(Font font, const char *text, Rectangle rec, float fontSize, float spacing, bool wordWrap, Color tint);   // Draw text using font inside rectangle limits
+void DrawTextRecEx(Font font, const char *text, Rectangle rec, float fontSize, float spacing, bool wordWrap, Color tint,
+                         int selectStart, int selectLength, Color selectText, Color selectBack);    // Draw text using font inside rectangle limits with support for text selection
 
 // Text misc. functions
 int MeasureText(const char *text, int fontSize);                                      // Measure string width for default font
 Vector2 MeasureTextEx(Font font, const char *text, float fontSize, float spacing);    // Measure string size for Font
-const char *FormatText(const char *text, ...);                                        // Formatting of text with variables to 'embed'
-const char *SubText(const char *text, int position, int length);                      // Get a piece of a text string
 int GetGlyphIndex(Font font, int character);                                          // Get index position for a unicode character on font
+
+// Text strings management functions
+// NOTE: Some strings allocate memory internally for returned strings, just be careful!
+bool TextIsEqual(const char *text1, const char *text2);                               // Check if two text string are equal
+unsigned int TextLength(const char *text);                                            // Get text length, checks for '\0' ending
+const char *TextFormat(const char *text, ...);                                        // Text formatting with variables (sprintf style)
+const char *TextSubtext(const char *text, int position, int length);                  // Get a piece of a text string
+const char *TextReplace(char *text, const char *replace, const char *by);             // Replace text string (memory should be freed!)
+const char *TextInsert(const char *text, const char *insert, int position);           // Insert text in a position (memory should be freed!)
+const char *TextJoin(const char **textList, int count, const char *delimiter);        // Join text strings with delimiter
+char **TextSplit(const char *text, char delimiter, int *count);                       // Split text into multiple strings (memory should be freed!)
+void TextSplitEx(const char *text, char delimiter, int *count, const char **ptrs, int *lengths); // Get pointers to substrings separated by delimiter
+void TextAppend(char *text, const char *append, int *position);                       // Append text at specific position and move cursor!
+int TextFindIndex(const char *text, const char *find);                                // Find first text occurrence within a string
+const char *TextToUpper(const char *text);                      // Get upper case version of provided string
+const char *TextToLower(const char *text);                      // Get lower case version of provided string
+const char *TextToPascal(const char *text);                     // Get Pascal case notation version of provided string
+int TextToInteger(const char *text);                            // Get integer value from text (negative values not supported)
 
 //------------------------------------------------------------------------------------
 // Basic 3d Shapes Drawing Functions (Module: models)
@@ -739,7 +1093,7 @@ void UnloadModel(Model model);                                                  
 // Mesh loading/unloading functions
 Mesh LoadMesh(const char *fileName);                                                              // Load mesh from file
 void UnloadMesh(Mesh *mesh);                                                                      // Unload mesh from memory (RAM and/or VRAM)
-void ExportMesh(const char *fileName, Mesh mesh);                                                 // Export mesh as an OBJ file
+void ExportMesh(Mesh mesh, const char *fileName);                                                 // Export mesh data to file
 
 // Mesh manipulation functions
 BoundingBox MeshBoundingBox(Mesh mesh);                                                           // Compute mesh bounding box limits
@@ -747,6 +1101,7 @@ void MeshTangents(Mesh *mesh);                                                  
 void MeshBinormals(Mesh *mesh);                                                                   // Compute mesh binormals
 
 // Mesh generation functions
+Mesh GenMeshPoly(int sides, float radius);                                                        // Generate polygonal mesh
 Mesh GenMeshPlane(float width, float length, int resX, int resZ);                                 // Generate plane mesh (with subdivisions)
 Mesh GenMeshCube(float width, float height, float length);                                        // Generate cuboid mesh
 Mesh GenMeshSphere(float radius, int rings, int slices);                                          // Generate sphere mesh (standard sphere)
@@ -798,8 +1153,8 @@ Texture2D GetTextureDefault(void);                                  // Get defau
 
 // Shader configuration functions
 int GetShaderLocation(Shader shader, const char *uniformName);              // Get shader uniform location
-void SetShaderValue(Shader shader, int uniformLoc, const float *value, int size); // Set shader uniform value (float)
-void SetShaderValuei(Shader shader, int uniformLoc, const int *value, int size);  // Set shader uniform value (int)
+void SetShaderValue(Shader shader, int uniformLoc, const void *value, int uniformType);               // Set shader uniform value
+void SetShaderValueV(Shader shader, int uniformLoc, const void *value, int uniformType, int count);   // Set shader uniform value vector
 void SetShaderValueMatrix(Shader shader, int uniformLoc, Matrix mat);       // Set shader uniform value (matrix 4x4)
 void SetMatrixProjection(Matrix proj);                              // Set a custom projection matrix (replaces internal projection matrix)
 void SetMatrixModelview(Matrix view);                               // Set a custom modelview matrix (replaces internal modelview matrix)
@@ -810,21 +1165,22 @@ Matrix GetMatrixModelview();                                        // Get inter
 Texture2D GenTextureCubemap(Shader shader, Texture2D skyHDR, int size);       // Generate cubemap texture from HDR texture
 Texture2D GenTextureIrradiance(Shader shader, Texture2D cubemap, int size);   // Generate irradiance texture using cubemap data
 Texture2D GenTexturePrefilter(Shader shader, Texture2D cubemap, int size);    // Generate prefilter texture using cubemap data
-Texture2D GenTextureBRDF(Shader shader, Texture2D cubemap, int size);         // Generate BRDF texture using cubemap data
+Texture2D GenTextureBRDF(Shader shader, int size);                  // Generate BRDF texture using cubemap data
 
 // Shading begin/end functions
 void BeginShaderMode(Shader shader);                                // Begin custom shader drawing
 void EndShaderMode(void);                                           // End custom shader drawing (use default shader)
 void BeginBlendMode(int mode);                                      // Begin blending mode (alpha, additive, multiplied)
 void EndBlendMode(void);                                            // End blending mode (reset to default: alpha blending)
+void BeginScissorMode(int x, int y, int width, int height);         // Begin scissor mode (define screen area for following drawing)
+void EndScissorMode(void);                                          // End scissor mode
 
 // VR control functions
 VrDeviceInfo GetVrDeviceInfo(int vrDeviceType);   // Get VR device information for some standard devices
 void InitVrSimulator(VrDeviceInfo info);          // Init VR simulator for selected device parameters
+void UpdateVrTracking(Camera3D *camera);          // Update VR tracking (position and orientation) and camera
 void CloseVrSimulator(void);                      // Close VR simulator for current device
 bool IsVrSimulatorReady(void);                    // Detect if VR simulator is ready
-void SetVrDistortionShader(Shader shader);        // Set VR distortion shader for stereoscopic rendering
-void UpdateVrTracking(Camera3D *camera);          // Update VR tracking (position and orientation) and camera
 void ToggleVrMode(void);                          // Enable/Disable VR experience
 void BeginVrDrawing(void);                        // Begin VR simulator stereo rendering
 void EndVrDrawing(void);                          // End VR simulator stereo rendering
@@ -847,6 +1203,8 @@ Sound LoadSoundFromWave(Wave wave);                             // Load sound fr
 void UpdateSound(Sound sound, const void *data, int samplesCount);// Update sound buffer with new data
 void UnloadWave(Wave wave);                                     // Unload wave data
 void UnloadSound(Sound sound);                                  // Unload sound
+void ExportWave(Wave wave, const char *fileName);               // Export wave data to file
+void ExportWaveAsCode(Wave wave, const char *fileName);         // Export wave sample data to code (.h)
 
 // Wave/Sound management functions
 void PlaySound(Sound sound);                                    // Play a sound

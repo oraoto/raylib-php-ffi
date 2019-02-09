@@ -27,7 +27,7 @@ while (!RayLib::WindowShouldClose())
     RayLib::DrawRectangle($screenWidth / 2 - 40, $boxPositionY, 80, 80, RayLib::$MAROON);
 
     RayLib::DrawText("Use mouse wheel to move the cube up and down!", 10, 10, 20, RayLib::$GRAY);
-    RayLib::DrawText(RayLib::FormatText("Box position Y: %03i", $boxPositionY), 10, 40, 20, RayLib::$LIGHTGRAY);
+    RayLib::DrawText(RayLib::TextFormat("Box position Y: %03i", $boxPositionY), 10, 40, 20, RayLib::$LIGHTGRAY);
     RayLib::EndDrawing();
 }
 // De-Initialization
