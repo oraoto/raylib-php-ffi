@@ -1,4 +1,7 @@
 * [[https://github.com/raysan5/raylib/][raylib]] binding for PHP
+
+See also [[https://github.com/oraoto/raylib-phpcpp][raylib-phpcpp]].
+
 ** Requirement
 - PHP 7.4
 - FFI extension
